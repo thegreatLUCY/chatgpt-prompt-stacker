@@ -567,9 +567,19 @@
           <ul class="cps-list" id="cps-chains"></ul>
         </div>
 
+        <div class="cps-privacy">
+          <svg class="cps-lock" viewBox="0 0 24 24" width="11" height="11" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+            <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+          </svg>
+          Everything stays on your device. Your prompts are never sent to us or anyone else.
+        </div>
+
         <a class="cps-star" href="https://github.com/thegreatLUCY/chatgpt-prompt-stacker"
            target="_blank" rel="noopener noreferrer">
-          ★ Star on GitHub — a star would be much appreciated ♡
+          <span class="cps-star-icon">★</span> Open source · Star on GitHub
+          <span class="cps-star-arrow">↗</span>
         </a>
       </div>
     `;
