@@ -134,3 +134,17 @@ d.text((34, 190), "Queue prompts. Walk away.", font=font(19, MED), fill=(175, 17
 d.text((34, 220), "ChatGPT · Claude · Gemini", font=font(16, DEMI), fill=hex2rgb("#19c37d"))
 tile.save(os.path.join(OUT, "promo-440x280.png"))
 print("  ✓ store/promo-440x280.png")
+
+# --- 1400x560 marquee promo tile (for store featuring) ---
+W, H = 1400, 560
+mq = canvas(W, H, "#19c37d")
+paste_panel(mq, os.path.join(SHOTS, "queue-dark.png"), 500, 130, H // 2, max_w=470)
+d = ImageDraw.Draw(mq)
+ic = Image.open(os.path.join(ROOT, "icon128.png")).convert("RGBA").resize((72, 72), Image.LANCZOS)
+mq.paste(ic, (96, 118), ic)
+d.text((182, 128), "Prompt Stacker", font=font(34, BOLD), fill=(238, 238, 240))
+d.text((96, 228), "Queue your prompts.\nWalk away.", font=font(60, HEAVY), fill=(245, 245, 247))
+d.text((96, 392), "Each prompt sends itself the moment the AI finishes\nthe last reply — on ChatGPT, Claude, Gemini & more.",
+       font=font(24, MED), fill=(172, 174, 180))
+mq.save(os.path.join(OUT, "promo-1400x560.png"))
+print("  ✓ store/promo-1400x560.png")
