@@ -114,7 +114,8 @@ slide("03-platforms.png", "queue-light.png", "#d97757",
 slide("04-chains.png", "library-dark.png", "#4b8bf5",
       "Reusable workflows",
       "Save your favorite\nprompt chains.",
-      "Store a sequence once and reload it in a click. Use\n{{last_reply}} to feed each answer into the next prompt.")
+      "Store a sequence once and reload it in a click. Use\n{{last_reply}} to feed each answer into the next prompt.",
+      box_h=560, max_w=430)
 
 slide("05-private.png", "pill-dark.png", "#19c37d",
       "Private by design",
