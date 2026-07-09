@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="icon128.png" width="88" height="88" alt="ChatGPT Prompt Stacker icon" />
+<img src="icon128.png" width="88" height="88" alt="Prompt Stacker icon" />
 
-# ChatGPT Prompt Stacker
+# Prompt Stacker
 
-**Queue up a stack of prompts and let them send themselves — each one fires the moment ChatGPT finishes the previous reply.**
+**Queue up a stack of prompts and let them send themselves — each one fires the moment the AI finishes the previous reply.**
 
-No more babysitting the tab. Line up your prompts, hit **Start**, walk away.
+Works on **ChatGPT · Claude · Gemini · Google AI Mode · DeepSeek**. No more babysitting the tab — line up your prompts, hit **Start**, walk away.
 
 <img src="screenshots/queue-dark.png" width="330" alt="Prompt Stacker — dark theme" />
 
@@ -20,11 +20,24 @@ You often have a *sequence* of prompts for one conversation — a lesson plan, a
 
 It only does what you'd do by hand: type into the box and click **Send** when the reply is done. **No API keys, no network calls, no scraping, no background automation** — just a queue and a click, so nothing sketchy is going on.
 
+## Supported platforms
+
+| Platform | URL | Status |
+| --- | --- | --- |
+| ChatGPT | chatgpt.com | ✅ Verified |
+| Claude | claude.ai | ✅ Verified |
+| Gemini | gemini.google.com | ✅ Verified |
+| Google AI Mode | google.com | ✅ Verified |
+| DeepSeek | chat.deepseek.com | 🧪 Best-effort (pending live verification) |
+
+Each platform's selectors live in a single `ADAPTERS` block in `content.js` — adding a new site or fixing a drifted selector is a one-place change.
+
 ## Features
 
 - 🧱 **Prompt queue** — stack as many prompts as you like; the next one sends automatically when the current reply finishes.
-- 🔗 **Chain replies** — use `{{last_reply}}` to feed ChatGPT's previous answer straight into the next prompt (*“Now summarise the above”*).
-- 🎨 **Auto theme** — follows ChatGPT's light/dark mode automatically (or lock it to light/dark yourself).
+- 🌐 **Five platforms** — one extension for ChatGPT, Claude, Gemini, Google AI Mode, and DeepSeek.
+- 🔗 **Chain replies** — use `{{last_reply}}` to feed the AI's previous answer straight into the next prompt (*“Now summarise the above”*).
+- 🎨 **Auto theme** — follows the site's light/dark mode automatically (or lock it to light/dark yourself).
 - ⏱️ **Delay between prompts** — add a breather so you can read each reply before the next fires.
 - ⏸️ **Pause / Resume / Stop** — full control mid-run; pause takes effect after the current reply.
 - 🔀 **Reorder & edit** — drag to reorder, double-click to edit a queued prompt.
@@ -55,9 +68,9 @@ Not on the Chrome Web Store — load it as an unpacked extension:
 2. Open **`chrome://extensions`** in Chrome.
 3. Turn on **Developer mode** (top-right).
 4. Click **Load unpacked** and select the project folder.
-5. Open [chatgpt.com](https://chatgpt.com) — the **Prompt Stacker** panel appears top-right. Refresh if it doesn't.
+5. Open any [supported platform](#supported-platforms) (e.g. [chatgpt.com](https://chatgpt.com)) — the **Prompt Stacker** panel appears top-right. Refresh if it doesn't.
 
-Works on `chatgpt.com` and `chat.openai.com`.
+On Google, the panel only appears in **AI Mode** (when an AI conversation is active), not on ordinary searches.
 
 ## How to use
 

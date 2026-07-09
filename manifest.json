@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Prompt Stacker",
-  "version": "1.1.0",
-  "description": "Queue up multiple prompts and auto-send the next one when ChatGPT finishes replying.",
+  "name": "Prompt Stacker for ChatGPT, Claude, Gemini & DeepSeek",
+  "version": "1.2.0",
+  "description": "Queue up multiple prompts and auto-send the next one when the AI finishes replying. Works on ChatGPT, Claude, Gemini, and DeepSeek.",
   "permissions": ["storage"],
   "icons": {
     "16": "icon16.png",
@@ -11,7 +11,14 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://www.google.com/search*",
+        "https://chat.deepseek.com/*"
+      ],
       "js": ["content.js"],
       "css": ["panel.css"],
       "run_at": "document_idle"
@@ -20,7 +27,14 @@
   "web_accessible_resources": [
     {
       "resources": ["icon16.png", "icon48.png", "icon128.png"],
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"]
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://www.google.com/search*",
+        "https://chat.deepseek.com/*"
+      ]
     }
   ]
 }

@@ -78,7 +78,9 @@
   let totalCount = 0;
   let currentQueueIndex = -1; // which visible queue row is sending
   let activeTab = "queue";
-  let lastReply = ""; // most recent ChatGPT answer, for {{last_reply}}
+  let lastReply = ""; // most recent answer, for {{last_reply}}
+  let replySnapshot = ""; // for text-stability "busy" detection (no-stop sites)
+  let replyChangedAt = 0;
 
   // Dynamic variables filled from ChatGPT at run time rather than by the user.
   const RESERVED_VARS = ["last_reply", "last_response", "previous"];
@@ -97,61 +99,180 @@
   const KEY_SETTINGS = "cps_settings";
 
   // ==========================================================================
-  // ChatGPT DOM helpers — selectors kept loose so small UI changes survive.
+  // Site adapters — per-platform selectors. The queue/runner logic is
+  // platform-agnostic; only these DOM touchpoints differ. Selectors are
+  // ordered best-first and fall back to shared generics, so a small UI change
+  // on any site (or an unknown send button) degrades gracefully. To support a
+  // new site or fix a drifted selector, edit only this block.
   // ==========================================================================
+  const GENERIC = {
+    editor: ['div[contenteditable="true"]', "textarea"],
+    send: ['button[aria-label*="Send" i]', 'button[data-testid*="send" i]'],
+    stop: ['button[aria-label*="Stop" i]', 'button[data-testid*="stop" i]'],
+    newChat: ['a[aria-label*="New chat" i]', 'button[aria-label*="New chat" i]'],
+  };
+
+  const ADAPTERS = {
+    chatgpt: {
+      name: "ChatGPT",
+      host: /(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$/,
+      editor: ["#prompt-textarea", 'div[contenteditable="true"]'],
+      send: ['button[data-testid="send-button"]'],
+      stop: ['button[data-testid="stop-button"]'],
+      newChat: ['[data-testid="create-new-chat-button"]'],
+      assistant: ['[data-message-author-role="assistant"] .markdown',
+        '[data-message-author-role="assistant"]'],
+      continueText: ["continue generating"],
+    },
+    claude: {
+      name: "Claude",
+      // Verified live on claude.ai (2026-07): editor [data-testid="chat-input"]
+      // (tiptap ProseMirror), send "Send message", stop "Stop response",
+      // assistant content .standard-markdown.
+      host: /(^|\.)claude\.ai$/,
+      editor: ['[data-testid="chat-input"]', 'div.ProseMirror[contenteditable="true"]',
+        '[contenteditable="true"]'],
+      send: ['button[aria-label="Send message" i]', 'button[aria-label*="Send" i]'],
+      stop: ['button[aria-label="Stop response" i]', 'button[aria-label*="Stop" i]'],
+      newChat: ['a[href="/new"]'],
+      assistant: [".standard-markdown", "div.font-claude-message",
+        '[data-testid="message-content"]'],
+      continueText: [],
+    },
+    gemini: {
+      name: "Gemini",
+      // Verified live on gemini.google.com (2026-07): Quill editor div.ql-editor
+      // (aria "Enter a prompt for Gemini"), send "Send message", stop
+      // "Stop response", responses in <message-content>.
+      host: /(^|\.)gemini\.google\.com$/,
+      editor: ['div.ql-editor[contenteditable="true"]',
+        '.ql-editor[aria-label*="Gemini" i]', "rich-textarea .ql-editor"],
+      send: ['button[aria-label="Send message" i]', 'button[aria-label*="Send" i]'],
+      stop: ['button[aria-label="Stop response" i]', 'button[aria-label*="Stop" i]'],
+      newChat: ['[data-test-id="new-chat-button"]', 'button[aria-label*="New chat" i]'],
+      assistant: ["message-content .markdown", "message-content", ".model-response-text"],
+      continueText: [],
+    },
+    google: {
+      name: "Google AI Mode",
+      // www.google.com AI Mode. Google's classes are obfuscated and change
+      // often; anchored on placeholder + aria where possible. `requireEditor`
+      // keeps the panel off normal Google searches.
+      host: /^(www\.)?google\.com$/,
+      requireEditor: true,
+      // Verified on www.google.com AI Mode (2026-07): editor textarea
+      // placeholder "Ask anything", send aria "Send", reply block .mZJni.
+      // AI Mode has NO stop button, so completion is detected by the reply
+      // text stabilising (noStopButton). No bare `textarea` fallback here —
+      // Google's own search box is a textarea, so we must not mount on
+      // ordinary searches.
+      noStopButton: true,
+      editor: ['textarea[placeholder="Ask anything" i]',
+        'div[contenteditable="true"][aria-label*="Ask" i]'],
+      send: ['button[aria-label="Send" i]', 'button[aria-label*="Send" i]'],
+      stop: [],
+      newChat: [],
+      assistant: [".mZJni", '[class*="markdown"]'],
+      continueText: [],
+    },
+    deepseek: {
+      name: "DeepSeek",
+      // NOTE: best-effort — not yet verified against a live chat.deepseek.com
+      // session. Editor is a textarea, so the Enter-key send fallback should
+      // work; noStopButton enables text-stability completion detection in case
+      // the stop-button selector is wrong. Refine from a probe when possible.
+      host: /(^|\.)deepseek\.com$/,
+      noStopButton: true,
+      editor: ["textarea#chat-input", "textarea", '[contenteditable="true"]'],
+      send: ['div[role="button"][aria-disabled]', 'button[aria-label*="Send" i]'],
+      stop: ['button[aria-label*="Stop" i]', 'div[role="button"][aria-label*="Stop" i]'],
+      newChat: [],
+      assistant: [".ds-markdown", '[class*="markdown"]', "[class*=message]"],
+      continueText: [],
+    },
+  };
+
+  function detectSite() {
+    const h = location.hostname;
+    for (const key in ADAPTERS) if (ADAPTERS[key].host.test(h)) return ADAPTERS[key];
+    return ADAPTERS.chatgpt; // sensible default
+  }
+
+  const SITE = detectSite();
+
+  // Return the first match for any selector in the list, skipping anything
+  // inside our own panel (so the generic `textarea`/`button` fallbacks never
+  // grab the Stacker's own controls).
+  function firstMatch(list) {
+    for (const sel of list) {
+      for (const el of document.querySelectorAll(sel)) {
+        if (!el.closest("#cps-panel")) return el;
+      }
+    }
+    return null;
+  }
+
   function getEditor() {
-    return (
-      document.querySelector("#prompt-textarea") ||
-      document.querySelector('div[contenteditable="true"]') ||
-      document.querySelector("textarea")
-    );
+    return firstMatch([...(SITE.editor || []), ...GENERIC.editor]);
   }
 
   function getSendButton() {
-    return (
-      document.querySelector('button[data-testid="send-button"]') ||
-      document.querySelector('button[aria-label*="Send" i]')
-    );
+    return firstMatch([...(SITE.send || []), ...GENERIC.send]);
   }
 
-  // Present only while ChatGPT is generating a reply.
+  // Present only while the model is generating a reply.
   function getStopButton() {
-    return (
-      document.querySelector('button[data-testid="stop-button"]') ||
-      document.querySelector('button[aria-label*="Stop" i]')
-    );
+    return firstMatch([...(SITE.stop || []), ...GENERIC.stop]);
   }
 
   function isGenerating() {
     return !!getStopButton();
   }
 
-  // Read the text of ChatGPT's most recent assistant reply (for {{last_reply}}).
+  // Update the streaming-text snapshot; returns the current reply text.
+  function noteReply() {
+    const t = getLastReplyText();
+    if (t !== replySnapshot) {
+      replySnapshot = t;
+      replyChangedAt = Date.now();
+    }
+    return t;
+  }
+
+  // "Is the model still working?" — a stop button (most sites) OR, for sites
+  // with no stop control (Google AI Mode), the reply text still growing.
+  function isBusy() {
+    if (isGenerating()) return true;
+    if (SITE.noStopButton) {
+      noteReply();
+      return replySnapshot.length > 0 && Date.now() - replyChangedAt < 1400;
+    }
+    return false;
+  }
+
+  // Read the text of the most recent assistant reply (for {{last_reply}}).
   function getLastReplyText() {
-    const nodes = document.querySelectorAll(
-      '[data-message-author-role="assistant"]'
-    );
-    if (!nodes.length) return "";
-    const last = nodes[nodes.length - 1];
-    const md = last.querySelector(".markdown") || last;
-    return (md.innerText || "").trim();
+    for (const sel of SITE.assistant || []) {
+      const nodes = [...document.querySelectorAll(sel)].filter(
+        (n) => !n.closest("#cps-panel")
+      );
+      if (nodes.length) return (nodes[nodes.length - 1].innerText || "").trim();
+    }
+    return "";
   }
 
   function getContinueButton() {
-    const btns = document.querySelectorAll("button");
-    for (const b of btns) {
+    const texts = SITE.continueText || [];
+    if (!texts.length) return null;
+    for (const b of document.querySelectorAll("button")) {
       const t = (b.textContent || "").trim().toLowerCase();
-      if (t.includes("continue generating")) return b;
+      if (texts.some((x) => t.includes(x))) return b;
     }
     return null;
   }
 
   function getNewChatButton() {
-    return (
-      document.querySelector('[data-testid="create-new-chat-button"]') ||
-      document.querySelector('a[aria-label*="New chat" i]') ||
-      document.querySelector('button[aria-label*="New chat" i]')
-    );
+    return firstMatch([...(SITE.newChat || []), ...GENERIC.newChat]);
   }
 
   // Best-effort usage-limit detection (heuristic, off by default).
@@ -165,9 +286,9 @@
     );
   }
 
-  // Insert text into ChatGPT's editor. execCommand("insertText") is the
-  // reliable path for the ProseMirror contenteditable (plain assignment is
-  // ignored by its internal state).
+  // Insert text into the editor. execCommand("insertText") is the reliable path
+  // for rich contenteditable editors (ProseMirror on ChatGPT/Claude, Quill on
+  // Gemini); plain assignment is ignored by their internal state.
   function setPromptText(text) {
     const editor = getEditor();
     if (!editor) return false;
@@ -195,21 +316,25 @@
 
   function clickSend() {
     const btn = getSendButton();
-    if (btn && !btn.disabled) {
+    if (btn && !btn.disabled && btn.getAttribute("aria-disabled") !== "true") {
       btn.click();
       return true;
     }
+    // Fallback: press Enter in the editor (covers sites with unknown send
+    // buttons, e.g. plain textarea composers).
     const editor = getEditor();
     if (editor) {
-      editor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Enter",
-          code: "Enter",
-          keyCode: 13,
-          which: 13,
-          bubbles: true,
-        })
-      );
+      for (const type of ["keydown", "keypress", "keyup"]) {
+        editor.dispatchEvent(
+          new KeyboardEvent(type, {
+            key: "Enter",
+            code: "Enter",
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+          })
+        );
+      }
       return true;
     }
     return false;
@@ -271,7 +396,7 @@
         if (cancel) return false;
       }
 
-      if (isGenerating()) {
+      if (isBusy()) {
         stableSince = null;
       } else if (stableSince === null) {
         stableSince = Date.now();
@@ -355,13 +480,18 @@
 
       setStatus(`Sending ${i + 1} of ${runList.length}…`, true);
       if (!setPromptText(outgoing)) {
-        setStatus("Couldn't find ChatGPT's input box.", false);
+        setStatus("Couldn't find the input box on this page.", false);
         break;
       }
+      // Baseline the reply text so the new answer registers as a change on
+      // no-stop-button sites (Google AI Mode).
+      replySnapshot = getLastReplyText();
+      replyChangedAt = 0;
+
       await sleep(250);
       clickSend();
 
-      await waitFor(() => isGenerating(), { timeout: 8000 });
+      await waitFor(() => isBusy(), { timeout: 8000 });
       await waitForIdle();
       if (cancel) break;
 
@@ -706,6 +836,8 @@
   function wireEvents() {
     const $ = (id) => panel.querySelector(id);
     const input = $("#cps-input");
+
+    panel.querySelector(".cps-title").title = "Active on " + SITE.name;
 
     $("#cps-add").onclick = addToQueue;
     // ⌘/Ctrl+Enter in the box adds to the queue.
@@ -1223,13 +1355,46 @@
     }
   }
 
-  function init() {
+  function mount() {
     if (document.getElementById("cps-panel")) return;
     buildPanel();
     applyTheme();
     watchPageTheme();
     document.addEventListener("keydown", onKey);
     restore();
+  }
+
+  // True only when this site's *specific* AI composer is present (ignores the
+  // shared generic fallbacks, so Google's search box doesn't count).
+  function aiComposerPresent() {
+    for (const sel of SITE.editor || []) {
+      for (const el of document.querySelectorAll(sel)) {
+        if (!el.closest("#cps-panel")) return true;
+      }
+    }
+    return false;
+  }
+
+  function init() {
+    if (document.getElementById("cps-panel")) return;
+    if (!SITE.requireEditor) {
+      mount();
+      return;
+    }
+    // Gated sites (Google): mount only once the AI composer appears, and watch
+    // for it in case the user switches into AI Mode after load.
+    if (aiComposerPresent()) {
+      mount();
+      return;
+    }
+    const obs = new MutationObserver(() => {
+      if (aiComposerPresent()) {
+        obs.disconnect();
+        mount();
+      }
+    });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => obs.disconnect(), 30000);
   }
 
   if (document.body) init();
