@@ -284,6 +284,32 @@ textarea.cps-input::placeholder {
   color: var(--cps-text-dim);
 }
 
+/* Insert-token chips under the input — one-click {{topic}} / {{last_reply}}. */
+.cps-inserts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: -2px;
+}
+.cps-chip {
+  padding: 5px 10px;
+  border: 0.5px solid var(--cps-border);
+  border-radius: 999px;
+  background: var(--cps-surface);
+  color: var(--cps-text-dim);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.cps-chip:hover {
+  color: var(--cps-text);
+  border-color: var(--cps-accent);
+  background: color-mix(in srgb, var(--cps-accent) 10%, var(--cps-surface));
+}
+
 .cps-hint {
   display: flex;
   flex-direction: column;

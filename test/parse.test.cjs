@@ -26,6 +26,12 @@ test("trims and drops empties", () => {
 test("empty input yields empty array", () => {
   assert.deepStrictEqual(parsePrompts("   \n\n  "), []);
 });
+test("splitOnBlank=false keeps blank-line paragraphs in one prompt", () => {
+  assert.deepStrictEqual(parsePrompts("a\n\nb", false), ["a\n\nb"]);
+});
+test("splitOnBlank=false still splits on --- divider", () => {
+  assert.deepStrictEqual(parsePrompts("a\n\nb\n---\nc", false), ["a\n\nb", "c"]);
+});
 
 console.log("extractVars");
 test("finds unique vars in first-seen order", () => {

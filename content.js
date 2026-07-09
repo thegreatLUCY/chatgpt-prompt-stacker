@@ -10,15 +10,18 @@
   // Pure helpers (no DOM) — also exported for unit tests at the bottom.
   // ==========================================================================
 
-  // Split raw textarea input into individual prompts. Prompts are separated by
-  // a blank line or a line containing only `---`, so a single prompt can span
-  // multiple lines.
-  function parsePrompts(text) {
-    // Separator = a `---` line (with optional blank lines around it) or a
-    // single blank line. The `---` variant is matched first so it consumes the
-    // surrounding blanks instead of leaving "---" as its own prompt.
+  // Split raw textarea input into individual prompts. A line containing only
+  // `---` always separates prompts. When `splitOnBlank` is true (the default),
+  // a blank line also separates them; turn it off so a single prompt can span
+  // several paragraphs.
+  function parsePrompts(text, splitOnBlank = true) {
+    // The `---` variant is matched first so it consumes any surrounding blank
+    // lines instead of leaving "---" as its own prompt.
+    const re = splitOnBlank
+      ? /\n(?:[ \t]*\n)?[ \t]*---[ \t]*\n(?:[ \t]*\n)?|\n[ \t]*\n/
+      : /\n(?:[ \t]*\n)*[ \t]*---[ \t]*\n(?:[ \t]*\n)*/;
     return String(text)
-      .split(/\n(?:[ \t]*\n)?[ \t]*---[ \t]*\n(?:[ \t]*\n)?|\n[ \t]*\n/)
+      .split(re)
       .map((s) => s.trim())
       .filter(Boolean);
   }
@@ -91,6 +94,7 @@
     newChatPerPrompt: false,
     autoContinue: true,
     autoPauseOnLimit: false,
+    splitOnBlank: true, // treat a blank line as a prompt separator
     themeMode: "auto", // "auto" | "dark" | "light"
   };
 
@@ -122,6 +126,9 @@
       newChat: ['[data-testid="create-new-chat-button"]'],
       assistant: ['[data-message-author-role="assistant"] .markdown',
         '[data-message-author-role="assistant"]'],
+      // Whole assistant turn — scanned for a still-rendering image, since
+      // image generation drops the stop button before the picture finishes.
+      turn: ['[data-message-author-role="assistant"]'],
       continueText: ["continue generating"],
     },
     claude: {
@@ -256,8 +263,37 @@
 
   // "Is the model still working?" — a stop button (most sites) OR, for sites
   // with no stop control (Google AI Mode), the reply text still growing.
+  // Still rendering an image/media in the latest reply? Image generation on
+  // ChatGPT removes the stop button while the picture is still being drawn, so
+  // without this the next prompt would fire early and cancel the image. We look
+  // at the most recent assistant turn for an unfinished <img> or an element
+  // flagged aria-busy — both selector-independent, so this survives UI churn.
+  function mediaBusy() {
+    const scopes = SITE.turn || SITE.assistant || [];
+    let turn = null;
+    for (const sel of scopes) {
+      const nodes = [...document.querySelectorAll(sel)].filter(
+        (n) => !n.closest("#cps-panel")
+      );
+      if (nodes.length) {
+        turn = nodes[nodes.length - 1];
+        break;
+      }
+    }
+    if (!turn) return false;
+    if (turn.querySelector('[aria-busy="true"]')) return true;
+    for (const img of turn.querySelectorAll("img")) {
+      // Skip tiny inline icons/avatars; only real generated pictures matter.
+      const big =
+        img.width > 64 || img.height > 64 || img.naturalWidth > 64 || !img.width;
+      if (big && (!img.complete || img.naturalWidth === 0)) return true;
+    }
+    return false;
+  }
+
   function isBusy() {
     if (isGenerating()) return true;
+    if (mediaBusy()) return true;
     if (SITE.noStopButton) {
       noteReply();
       return replySnapshot.length > 0 && Date.now() - replyChangedAt < 1400;
@@ -760,11 +796,14 @@
         <!-- Queue pane -->
         <div class="cps-pane" data-pane="queue">
           <textarea class="cps-input" id="cps-input"
-            placeholder="Type prompts here. Separate each with a blank line or --- on its own line."></textarea>
-          <div class="cps-hint">
-            <span class="cps-hint-row"><kbd class="cps-kbd">⏎⏎</kbd> Leave a blank line between prompts.</span>
-            <span class="cps-hint-row"><code>{{topic}}</code> Placeholders you fill in once at the start.</span>
-            <span class="cps-hint-row"><code>{{last_reply}}</code> Passes the previous answer into the next prompt.</span>
+            placeholder="Type your prompts here…"></textarea>
+          <div class="cps-inserts">
+            <button type="button" class="cps-chip" id="cps-ins-var"
+              title="Insert a fill-in placeholder you'll be asked for once when you press Start">
+              + Fill-in blank</button>
+            <button type="button" class="cps-chip" id="cps-ins-last"
+              title="Insert the AI's previous answer into this prompt">
+              + Previous answer</button>
           </div>
           <div class="cps-row">
             <button class="cps-btn" id="cps-add">Add to queue</button>
@@ -781,6 +820,9 @@
                 <span>Repeat whole queue ×</span>
                 <input type="number" id="cps-repeat" min="1" max="99" step="1" value="1">
               </div>
+              <label class="cps-check">
+                <input type="checkbox" id="cps-splitblank" checked> Treat a blank line as a new prompt
+              </label>
               <label class="cps-check">
                 <input type="checkbox" id="cps-newchat"> New chat before each prompt
               </label>
@@ -852,9 +894,26 @@
     makeDraggable(panel, panel.querySelector(".cps-header"));
   }
 
+  // Insert `token` at the textarea caret. `select` = [start,end] offsets within
+  // the token to highlight afterwards (e.g. the word "topic" so it can be typed
+  // over); otherwise the caret lands right after the token.
+  function insertToken(textarea, token, select) {
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    const v = textarea.value;
+    textarea.value = v.slice(0, start) + token + v.slice(end);
+    if (select) {
+      textarea.setSelectionRange(start + select[0], start + select[1]);
+    } else {
+      const pos = start + token.length;
+      textarea.setSelectionRange(pos, pos);
+    }
+    textarea.focus();
+  }
+
   function addToQueue() {
     const input = panel.querySelector("#cps-input");
-    const parsed = parsePrompts(input.value);
+    const parsed = parsePrompts(input.value, settings.splitOnBlank);
     if (parsed.length) {
       queue.push(...parsed);
       input.value = "";
@@ -877,6 +936,11 @@
         addToQueue();
       }
     });
+
+    // Insert helpers — write the token at the cursor so non-technical users
+    // don't have to remember the {{…}} syntax.
+    $("#cps-ins-var").onclick = () => insertToken(input, "{{topic}}", [2, 7]);
+    $("#cps-ins-last").onclick = () => insertToken(input, "{{last_reply}}");
 
     $("#cps-start").onclick = start;
     $("#cps-pause").onclick = pauseOrResume;
@@ -911,6 +975,10 @@
       settings.repeat = Math.max(1, Number(e.target.value) || 1);
       persistSettings();
     };
+    $("#cps-splitblank").onchange = (e) => {
+      settings.splitOnBlank = e.target.checked;
+      persistSettings();
+    };
     $("#cps-newchat").onchange = (e) => {
       settings.newChatPerPrompt = e.target.checked;
       persistSettings();
@@ -930,6 +998,7 @@
     const $ = (id) => panel.querySelector(id);
     $("#cps-delay").value = settings.delay;
     $("#cps-repeat").value = settings.repeat;
+    $("#cps-splitblank").checked = settings.splitOnBlank;
     $("#cps-newchat").checked = settings.newChatPerPrompt;
     $("#cps-autocont").checked = settings.autoContinue;
     $("#cps-autolimit").checked = settings.autoPauseOnLimit;
